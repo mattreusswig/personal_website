@@ -6,7 +6,7 @@ widget = "custom"
 active = true
 
 # Note: a full width section format can be enabled by commenting out the `title` and `subtitle` with a `#`.
-title = "Resume"
+title = "Resumé"
 subtitle = ""
 
 # Order that this section will appear in.
@@ -14,4 +14,4 @@ weight = 25
 
 +++
 
-My resume is available for download in [PDF](cv/Reusswig_Resume.pdf) form.
+My resumé is available for download in [PDF](cv/Reusswig_Resume.pdf) form.
