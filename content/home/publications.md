@@ -66,6 +66,4 @@ subtitle = "Reports and articles I have authored or co-authored. Reports develop
  css_class = ""
 +++
 
-{{% alert note %}}
-Discover relevant content by [filtering publications]({{< ref "/publication/_index.md" >}}).
-{{% /alert %}}
+
