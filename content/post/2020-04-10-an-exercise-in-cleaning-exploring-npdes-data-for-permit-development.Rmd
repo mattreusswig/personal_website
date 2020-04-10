@@ -1,0 +1,400 @@
+---
+title: An Exercise in Cleaning and Exploring NPDES Data for Permit Development
+author: Matthew
+date: '2020-04-10'
+slug: an-exercise-in-cleaning-exploring-npdes-data-for-permit-development
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: no
+---
+
+# Introduction
+This is an example exercise in cleaning and preparing NPDES data for use in a reasonable potential analysis using R. When cleaning data for an RPA, the goal is to pare away data which is not needed and to identify & correct irregularities (missing data, inconsistent labeling, etc) within what remains.
+
+The point of this exercise is two-fold: 
+
+1. Providing a general NPDES data cleaning walkthrough for new permit writers. 
+
+2. Give some detail on how to tackle specific tasks using R. In my experience, most permit writers use spreadsheet tools for data cleaning so there are fewer resources to draw on for other tools.
+
+The particular steps taken in any given data cleaning job will change depending on the content and format of the NPDES data in question. As a consequence, I find defining a set of hard and fast steps or rules for data cleaning is not helpful. Instead, a permit writer needs to get a sense for what a clean dataset ready for input to an RPA looks like, then map a path from that messy data to the desired endpoint. 
+
+# Walkthrough
+
+As a new permit writer, figuring out how to tackle data cleaning can be challenging--especially when one's understanding of the RPA process itself is fuzzy. This document can serve as a starting place for planning and executing a data cleaning task. While the particulars may change from permit to permit, the general flow of this walkthrough (if not the exact steps) will be widely applicable.
+
+### Obtain NPDES Data
+
+First, let's use the new package 'echor' to download discharge monitoring data from the Hangtown Creek WRF, owned and operated by the City of Placerville. The package 'echor' provides an interface for connecting to EPA's [ECHO database](https://echo.epa.gov/) and downloading data. We will use 'dplyr' for manipulating the dataset and ggplot2 for making graphs.
+
+```{r}
+library(echor)
+library(dplyr, warn.conflicts = FALSE)
+library(ggplot2, warn.conflicts = FALSE)
+
+```
+
+We will use the 'echoGetEffluent' function and the NPDES ID for the facility (CA0078956) to download the effluent data available in ECHO. We'll specify that we want all data collected between January 2015 - December 2019. For those who want to follow along at home, you can use the code immediately below to download the data I'll be using. I've included paginated copies of the dataset at key places below, but its inherently awkward to flip through the data on a webpage so it may be easier explore the data in your own R session.
+
+```{r Load Data with Echor, eval=FALSE, warning=FALSE}
+htc <- echor::echoGetEffluent("CA0078956", 
+                              start_date = "01/01/2015",
+                              end_date = "12/31/2019")
+saved <- htc 
+
+write.csv(saved, file = "CA0078956_raw_data.csv")
+
+htc
+
+```
+
+```{r Load Data with Echor2, warning=FALSE, echo=FALSE}
+htc <- echor::echoGetEffluent("CA0078956", 
+                              start_date = "01/01/2015",
+                              end_date = "12/31/2019")
+saved <- htc 
+
+## Next line not run, included for illustrative purposes
+# write.csv(saved, file = "CA0078956_raw_data.csv")
+
+## paged_table function used to make tables more readable on website.
+## Not necessary to use this function in a typical analysis.
+rmarkdown::paged_table(htc)
+
+```
+
+
+Note that after the data was downloaded we saved a copy of the raw data to the computer in a .csv file named "CA0078956_raw_data.csv". It is good practice to save a copy of your raw, unedited data before cleaning. This is true whether you are using R, Python, or Excel. Having a copy of the raw data gives analysts and quality control auditors something to refer back to when checking the steps of the RPA and limit calculations.
+
+### Cleaning the Dataset 
+
+Now that we have the data, let's look at what's inside. Let's list the column headers, the pollutant parameters included in the dataset, and the monitoring locations where the data was collected.
+
+```{r Data Columns}
+headers <- names(htc)
+
+headers
+```
+
+That's a lot of columns! Let's see if we can narrow the list down. We'll keep information pertaining to the monitoring location, the parameter identity, when the discharge occurred, and the parameter measurement information.
+
+```{r Filter Columns}
+columns_keep <- c("perm_feature_nmbr", "perm_feature_type_desc", 
+                  "parameter_code",  "parameter_desc", 
+                  "monitoring_period_end_date", "dmr_value_nmbr",
+                  "dmr_unit_desc", "dmr_value_qualifier_code", 
+                  "statistical_base_short_desc",
+                  "nodi_code", "nodi_desc") 
+
+htc <- htc[ , columns_keep]
+  
+
+```
+
+```{r Monitoring Location Features, eval=FALSE}
+
+htc %>% 
+  group_by(perm_feature_nmbr, perm_feature_type_desc) %>% 
+  summarise(n = n())
+```
+
+```{r Monitoring Location Features2, echo=FALSE}
+
+htc %>% 
+  group_by(perm_feature_nmbr, perm_feature_type_desc) %>% 
+  summarise(n = n()) %>% 
+  rmarkdown::paged_table()
+```
+
+Based on the table above, it appears that the ECHO database includes influent and effluent data but no receiving water data for this plant. In this type of circumstance, I'd examine the NDPES permit--was the discharger **supposed** to collect receiving water data? If they were, then I would double-check my database query to make sure I hadn't somehow missed it (maybe widen the date range I searched under). If the query looked okay, then I would ask the discharger about it. 
+
+Let's filter out the influent data since its not used in the RPA and limit our exercise to solely effluent data. Then we will examine the list of parameters in the dataset.
+
+```{r Filter Monitoring Location}
+htc <- filter(htc, perm_feature_nmbr == "001")
+```
+
+```{r Parameter List, eval=FALSE}
+htc$parameter_desc %>% 
+  unique() %>%
+  sort() %>% 
+  data.frame(parameter_name = .)
+```
+
+```{r Parameter List2, echo=FALSE}
+htc$parameter_desc %>% 
+  unique() %>%
+  sort() %>% 
+  data.frame(parameter_name = .) %>% 
+  rmarkdown::paged_table()
+```
+
+We can use the table above to flip through all the parameters included in the dataset. In a real data cleaning task, we would start pruning this list down to the parameters we wish to include in the RPA. To figure out what those are, we would make reference to the water quality objectives and water quality standard implementing procedures effective in the permittee's jurisdiction. To make this task quicker, I typically maintain a table of pollutants of concern which are applicable to a jurisdiction or to a class of dischargers (e.g., POTWs). I will do a join of the dataset with the pollutant-of-concern table, and discard parameters which are not pollutants of concern.
+
+Before pruning the list down to formal pollutants of concern for the RPA, it may be advisable to edit the parameter names to match some standardized format. This will make joining/matching the tables more accurate. In addition, the parameters may not be named in an internally consisitent way--e.g., the zinc entries may be labeled "Zinc, total recoverable" in some cases, and "Total Zinc" in others. Finally, there may be other reasons for standardizing pollutant names. For example, it may be important that zinc be labeled "Zinc" instead of "Zinc, total recoverable" or "Total Zinc" in whatever RPA calculation tool which will be used to process the clean data.
+
+For this exercise, we will delay pruning the pollutant list so as to better illustrate subsequent cleaning steps. We will select the list of pollutants of concern at the end of the exercise prior to summarizing the data.
+
+Next, let's examine the structure of the data table.
+
+```{r DF Structure}
+str(htc)
+```
+
+It appears that all columns were read in as character vectors so let's convert the date and effluent measurement columns into date and numeric types, respectively. We will **definitely** need to be able to sort numbers later on, and being able to sort dates may come in handy when doing QC on RPA results.
+
+```{r Convert Column Types}
+htc$monitoring_period_end_date <- lubridate::mdy(htc$monitoring_period_end_date)
+htc$dmr_value_nmbr <- as.numeric(htc$dmr_value_nmbr)
+```
+
+Next, let's look at the statistical base codes (i.e., the column 'statistical_base_short_desc'). This column tells us if the reported value is a single-day measurement which will be listed as a daily max if the monitoring frequency is daily or less frequent. We are interested in the individual measurements and not statistical aggregations, like monthly or weekly averages. We'll also look at units so we can distinguish between concentration data (e.g., mg/L) and mass flux data (lbs/day). RPAs are typically based on concentration values rather than mass fluxes. 
+
+```{r Stat Bases, eval=FALSE}
+htc %>% 
+  group_by(parameter_desc) %>% 
+  summarise(units = paste(dmr_unit_desc, collapse = ", "),
+            stat_desc = paste(statistical_base_short_desc, collapse = ", "))
+
+htc <- htc %>% 
+  filter(statistical_base_short_desc == "DAILY MX")
+```
+
+```{r Stat Bases2, echo=TRUE}
+ htc %>% 
+  select(parameter_desc, dmr_unit_desc, statistical_base_short_desc) %>% 
+  group_by(parameter_desc) %>% 
+  unique() %>% 
+  summarise(units = paste(dmr_unit_desc, collapse = ", "),
+            stat_base = paste(statistical_base_short_desc, collapse = ", ")) %>% 
+  rmarkdown::paged_table()
+
+htc <- htc %>% 
+  filter(statistical_base_short_desc == "DAILY MX")
+```
+
+Based on flipping through the data in the table above, it appears we want to keep the "DAILY MX" observations and drop the rest, which appear to correspond to non-toxics or to weekly/monthly aggregations. 
+
+The only toxics with mixed units (i.e., sometimes ug/L is used, other times ng/L) are mercury and methylmercury, so we will convert units such that everything is in ug/L. Normally, we would also compare the units used here to the units in the water quality objectives to ensure they are consistent, but we will skip that step for purposes of this exercise.
+
+```{r Fix ng/L Units}
+htc <- htc %>% 
+  mutate(dmr_value_nmbr = case_when(dmr_unit_desc == "ng/L" ~ dmr_value_nmbr / 1000,
+                                    TRUE ~ dmr_value_nmbr),
+         dmr_unit_desc = case_when(dmr_unit_desc == "ng/L" ~ "ug/L",
+                                    TRUE ~ dmr_unit_desc))
+```
+
+Let's also remove the mass flux data (indicated by "lb/d" units), the fiber data ("Fib/L"), flow ("MGD"), conductance ("umho/cm"), and chronic toxicity ("tox chronic"). We'll keep the mass concentration data and observations where they forgot to include a unit indicator. 
+
+```{r Filter units}
+htc <- htc %>% 
+  filter(dmr_unit_desc %in% c("mg/L", "", "ug/L", "ng/L"))
+```
+
+Next, let's look at the data with missing units.
+
+```{r Missing Units, eval=FALSE}
+
+htc %>% 
+  filter(dmr_unit_desc == "") 
+
+```
+
+```{r Missing Units2, echo=FALSE}
+
+htc %>% 
+  filter(dmr_unit_desc == "") %>% 
+  rmarkdown::paged_table()
+
+```
+
+It appears all of the observations with missing units belong to observations that were reported as unquantifiable. In a real job, we would reconcile this missing information with the permittee (i.e., obtain method detection limits, and reporting levels) if it appeared the missing information could influence reasonable potential findings or effluent limitation calculations.
+
+So we started with `r nrow(saved)` observation rows and we're down to `r nrow(htc)`. Next let's see what date ranges the data covers.
+
+```{r Date Ranges, eval=FALSE}
+htc %>%  
+  group_by(parameter_desc) %>% 
+  summarize(min = min(monitoring_period_end_date),
+            max = max(monitoring_period_end_date),
+            n_samples = n()) %>% 
+  arrange(desc(n_samples))
+```
+
+```{r Date Ranges2, echo=FALSE}
+htc %>%  
+  group_by(parameter_desc) %>% 
+  summarize(min = min(monitoring_period_end_date),
+            max = max(monitoring_period_end_date),
+            n_samples = n()) %>% 
+  arrange(desc(n_samples)) %>% 
+  rmarkdown::paged_table()
+```
+
+Based on this table, it looks like most of the toxics one would use in an RPA were monitored once (April 2017) during the period of interest. The exceptions are lead, mercury, and zinc. Perhaps ammonia, too, depending on the water quality standards. 
+
+At this point, we would typically compare our dataset to the permit monitoring requirements to ascertain whether we had all the data we were supposed to have. Are there pollutants the discharger **should** have monitored for which were not included in this dataset? And were all pollutants monitored the correct number of times--e.g., if the permit requires monthly monitoring for zinc then we should have 60 samples within the five years of data. For purposes of this example exercise we will skip this step, but its very important to do when preparing data for an RPA in the real world.
+
+Next, let's make sure that we have valid numbers for all of our toxics data. Were any observations left blank or marked NA? Were non-detect and non-quantifiable values listed with method detection limits and method reporting levels. If any missing information is identified, then we would need to contact the discharger to obtain any needed missing information.
+
+First, let's search for any result data listed as blank (e.g., "") or NA.
+
+```{r Result is NA, eval=FALSE}
+
+htc %>% 
+  filter(dmr_value_nmbr == "" | is.na(dmr_value_nmbr)) 
+```
+
+```{r Result is NA2, echo=FALSE}
+
+htc %>% 
+  filter(dmr_value_nmbr == "" | is.na(dmr_value_nmbr)) %>% 
+  rmarkdown::paged_table()
+```
+
+As noted above with the missing units, It looks like we have a number of items marked as unquantifiable. If knowing the method detection limits/reporting levels for these items could conceivably change our RPA findings, or if it might change the effluent limit imposed, we would want to contact the discharger and collect the missing information. 
+
+Next, we will look at the qualified data and see if we have detection limit information. While we are at it, we'll also make it so qualifiers are consistently applied (i.e., all detect values will be marked " ", instead of a mix of  "=" signs and blank " " values).
+```{r Fix Qualifiers, eval=FALSE}
+htc[which(htc$dmr_value_qualifier_code == "="), "dmr_value_qualifier_code"] <- ""
+
+htc %>% 
+  filter(dmr_value_qualifier_code == "<") %>% 
+  select(parameter_desc, dmr_value_qualifier_code, dmr_value_nmbr, nodi_desc)
+
+```
+
+```{r Fix Qualifiers2, echo=FALSE}
+htc[which(htc$dmr_value_qualifier_code == "="), "dmr_value_qualifier_code"] <- ""
+
+htc %>% 
+  filter(dmr_value_qualifier_code == "<") %>% 
+  select(parameter_desc, dmr_value_qualifier_code, dmr_value_nmbr, nodi_desc) %>% 
+  rmarkdown::paged_table()
+
+```
+
+Flipping through the above table, it appears we have some kind of number listed in the 'dmr_value_nmbr' field for all the non-detect toxics which is what we want.
+
+### Aggregate Composite Parameters
+
+In some cases, water quality objectives are expressed in terms of a composite parameter, like total PCBs, dioxins, or polyaromatic hydrocarbons. Sometimes these parameters are reported to the regulator in terms of their subconstituents or congeners instead of in terms of their total composite parameter. For example, let's examine Hangtown Creek's PCB data:
+```{r PCB Congeners, eval=FALSE}
+
+htc %>% 
+  filter(stringr::str_detect(string = parameter_desc, pattern = "PCB"))
+
+```
+
+```{r PCB Congeners2, echo=FALSE}
+
+htc %>% 
+  filter(stringr::str_detect(string = parameter_desc, pattern = "PCB")) %>% 
+  rmarkdown::paged_table()
+```
+
+In this case, PCBs were monitored once during the period of interest using seven PCB congeners. Under California's implementing provisions, one would composite this data by adding together all the detected congener values on a given date. If none of the congeners were detected, then total PCB value would be reported as non-detect with a minimum detection limit equal to that of the lowest of minimum detection limits for the congeners. Let's composite the total PCB results.
+```{r Total Composite Parameter, warning=FALSE}
+
+htc %>% 
+  filter(stringr::str_detect(string = parameter_desc, pattern = "PCB")) %>% 
+  group_by(monitoring_period_end_date) %>% 
+  summarise(parameter_desc = "PCBs",
+            dmr_value_qualifier_code = if_else(n() == sum(dmr_value_qualifier_code == "<"), "<", ""),
+            dmr_value_nmbr           = if_else(dmr_value_qualifier_code == "<", 
+                                               min(dmr_value_nmbr, na.rm = TRUE), 
+                                               max(dmr_value_nmbr[dmr_value_qualifier_code == ""], 
+                                                   na.rm = TRUE))) %>% 
+  select(parameter_desc, monitoring_period_end_date, dmr_value_qualifier_code, 
+         dmr_value_nmbr)
+
+```
+
+### Using Data Exploration to Check for Suspicous Data
+
+Let's look at time-series scatter plots for hardness, lead, mercury, and zinc and see if anything pops out. Since we have a fair amount of data for lead, mercury, and zinc, chances are they have had reasonable potential for these parameters in the past or TMDLs are applicable. We will include hardness since it is used for assessing hardness-based metals toxicity.
+
+```{r Graph, message=FALSE, warning=FALSE}
+
+htc %>% 
+  filter(parameter_desc %in% c("Hardness, total [as CaCO3]",
+                               "Zinc, total recoverable",
+                               "Lead, total recoverable",
+                               "Mercury, total recoverable")) %>% 
+ggplot(.) + geom_point(aes(x = monitoring_period_end_date, 
+                          y = dmr_value_nmbr, 
+                          col = dmr_value_qualifier_code)) +
+  facet_wrap(vars(parameter_desc), nrow = 4, scales = "free_y") +
+  labs(x = "", y = "Concentration")
+
+```
+
+The 3rd quarter 2017 mercury result definitely stands out and merits further investigation. It is three orders of magnitude greater than all the other mercury results which immediately makes me wonder if its a decimal place typo. While the error appears obvious, I would need to confirm this suspicion before discounting the reported value. I would do this by contacting the permittee and either asking them to check their original lab sheet or to email a copy of the lab sheet so I can check it myself. "Outlier" datapoints should never be discarded unless it can be confirmed they are the result of measurement error or data entry error. 
+
+The lead measurement in 2nd quarter of 2019 has a different MDL than was used in other quarters which is a little odd but not obviously wrong, depending on the method sensitivity standards applicable to the plant.
+
+### Summarize the Data
+
+Finally, we will summarize the data. Before doing this, we will prune our data down to the pollutants of concern. The pollutants of concern will depend on the effective water quality standards and associated implementing provisions in effect in the permittee's jurisdiction. However, for this exercise we will assume the pollutants of concern are copper, heptachlor, lead, mercury, and zinc. 
+
+To perform and RPA in California, one would take the maximum observed concentration as the maximum effluent concentration (MEC). Under the TSD approach used in other jurisdictions, one would take the number of samples for a given constituent and the maximum observed concentration to project a MEC at a specified confidence interval. For this exercise, we will summarize the information needed for the TSD (though we won't actually follow-through on projecting an MEC).
+
+```{r Summarise data, warning=FALSE}
+
+cv <- function(qual, result) {
+  new_result <- c(result[which(qual == "")], result[which(qual == "<")] * 0.5)
+  
+  sd(new_result, na.rm = TRUE) / mean(new_result, na.rm = TRUE)
+}
+
+results <- htc %>% 
+  filter(parameter_desc %in% c("Copper, total recoverable",
+                               "Lead, total recoverable", "Mercury, total recoverable",
+                               "Zinc, total recoverable", "Heptachlor")) %>% 
+  group_by(parameter_desc) %>% 
+  summarise(n = n(),
+            qual = if_else(n() == sum(dmr_value_qualifier_code == "<"), "<", ""),
+            result = if_else(qual == "<",
+                             min(dmr_value_nmbr, na.rm = TRUE),
+                             max(dmr_value_nmbr[which(dmr_value_qualifier_code != "<")], na.rm = TRUE)))
+
+knitr::kable(results)
+
+```
+
+## Putting it All Together
+
+In summary, these were the data cleaning steps we followed:
+
+1. We identified the pollutants of concern in the dataset and where they were measured (e.g., the effluent, the upstream and downstream receiving water).
+
+2. We cleaned up the structure of the data (e.g., converting dates from a "character" class to a "date" class, converting concentration values to a "numeric" class).
+
+3. Incomplete data was identified and retained for further investigation & follow-up. Examples of incomplete data include data missing units, or missing measurement values/MDLs. 
+
+4. We identified the data which represented single-sample measurements typically used in RPAs. The rest of the data--statistical aggregate values (average monthly, average weekly, etc.) which are computed based on the real measurements, and mass-flux (lb/day) values--were filtered out and discarded.
+
+5. We processed and aggregated composite parameters based on their congeners/sub-constituents using PCBs as an example.
+
+6. Compare the data present with what's required to be collected in the permittee's monitoring and reporting program. Is everything present and accounted for?
+
+7. Suspicious data, like the high mercury measurement, was identified and flagged for further investigation.
+
+8. We summarized the data.
+
+Looking back on it, one thing a new permit writer should observe and take away is data cleaning involves lots of filtering, looking around, and thinking critically about what one sees within the data. While the steps above are a not-bad framework, data cleaning is more art than science and each project will be different. For example, one doesn't typically summarise the MECs for Pacific Ocean discharge RPAs in California--instead one would need to combine the detected observations and the MDLs of non-detects for entry into California's RPCalc software. 
+
+Regardless of the specifics, the key to success is to keep your eyes peeled, apply critical thinking skills, know the data format needed for the RPA, and to be thorough.
+
+## Tips
+
+- Always retain a copy of the raw data without any edits.
+
+- Compare the data collected with requirements listed in the permittee's monitoring and reporting program--do you have all the data you are supposed to have for the RPA?
+
+- Look for missing information and, if it has the potential to change RPA results or limits, make certain to obtain it from the permittee or other sources.
+
+- Don't discard "outlier" data unless there is a well-articulated and persuasive reason to do so. For RPA's, one should investigate the authenticity of unusually large values but not discard them without proof that they are the result of some lab or data entry error.
