@@ -28,12 +28,17 @@
   </url>
   
   <url>
-    <loc>/post/an-exercise-in-cleaning-exploring-npdes-data-for-permit-development/</loc>
-    <lastmod>2020-04-10T00:00:00+00:00</lastmod>
+    <loc>/post/</loc>
+    <lastmod>2020-04-26T11:12:47-04:00</lastmod>
   </url>
   
   <url>
-    <loc>/post/</loc>
+    <loc>/post/use-stars-to-visualize-curvilinear-netcdf-rasters/</loc>
+    <lastmod>2020-04-26T11:12:47-04:00</lastmod>
+  </url>
+  
+  <url>
+    <loc>/post/an-exercise-in-cleaning-exploring-npdes-data-for-permit-development/</loc>
     <lastmod>2020-04-10T00:00:00+00:00</lastmod>
   </url>
   
