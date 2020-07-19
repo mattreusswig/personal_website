@@ -5,12 +5,20 @@
     <link>/publication_types/4/</link>
       <atom:link href="/publication_types/4/index.xml" rel="self" type="application/rss+xml" />
     <description>4</description>
-    <generator>Source Themes Academic (https://sourcethemes.com/academic/)</generator><language>en-us</language><copyright>© 2020</copyright><lastBuildDate>Mon, 01 Oct 2018 00:00:00 +0000</lastBuildDate>
+    <generator>Source Themes Academic (https://sourcethemes.com/academic/)</generator><language>en-us</language><copyright>© 2020</copyright><lastBuildDate>Wed, 01 Jan 2020 00:00:00 +0000</lastBuildDate>
     <image>
       <url>img/map[gravatar:%!s(bool=false) shape:circle]</url>
       <title>4</title>
       <link>/publication_types/4/</link>
     </image>
+    
+    <item>
+      <title>Mystic River Watershed Alternative TMDL Development for Phosphorus Management</title>
+      <link>/publication/mystic-tmdl/</link>
+      <pubDate>Wed, 01 Jan 2020 00:00:00 +0000</pubDate>
+      <guid>/publication/mystic-tmdl/</guid>
+      <description></description>
+    </item>
     
     <item>
       <title>Low Flow Statistics Tools: A How-To Handbook for Permit Writers</title>

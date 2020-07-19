@@ -7,7 +7,7 @@ headless = true  # This file represents a page section.
 active = true  # Activate this widget? true/false
 weight = 30  # Order that this section will appear.
 
-title = "Publications and Projects"
+title = "Reports and Articles"
 subtitle = "Reports and articles I have authored or co-authored. Reports developed for clients are only made available here if the document has previously been published or released by the client."
 
 [content]
